@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  web-components-server:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: web-components-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./componentes:/app/componentes
+      - ./extension:/app/extension
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

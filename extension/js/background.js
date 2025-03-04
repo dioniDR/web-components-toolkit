@@ -1,0 +1,1 @@
+// Código del background script
