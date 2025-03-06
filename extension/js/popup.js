@@ -24,12 +24,14 @@ document.addEventListener('DOMContentLoaded', function() {
             statusMessage.style.display = "block";
             
             try {
+                console.log('Intentando enviar mensaje al background');
                 // Enviar mensaje al background script
                 chrome.runtime.sendMessage({
                     action: "insertComponentBackground",
                     tagName: tagName,
                     scriptSrc: scriptSrc
                 }, function(response) {
+                    console.log('Respuesta recibida:', response);
                     if (response && response.success) {
                         statusMessage.textContent = "Componente insertado correctamente";
                         statusMessage.className = "status-message status-success";
@@ -40,6 +42,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 });
             } catch (error) {
+                console.error('Error detallado:', error);
                 statusMessage.textContent = `Error: ${error.message || "No se pudo insertar el componente"}`;
                 statusMessage.className = "status-message status-error";
                 console.error("Error insertando componente:", error);
