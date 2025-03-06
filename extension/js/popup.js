@@ -39,51 +39,58 @@ document.addEventListener('DOMContentLoaded', function() {
             statusMessage.className = "status-message";
             statusMessage.style.display = "block";
             
-            // Comprobamos primero si la pestaña activa permite la inyección
-            chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-                const currentTab = tabs[0];
-                
-                // Verificar si podemos inyectar en esta pestaña
-                const url = new URL(currentTab.url);
-                if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-                    mostrarError(`No se puede insertar en páginas ${url.protocol}`);
-                    return;
-                }
-                
-                // Todo está bien, procedemos con la inserción
-                enviarMensajeInsercion(tagName, scriptSrc);
-            });
+            // Intentar insertar directamente usando chrome.tabs.query y comunicándonos con el content script
+            insertarComponenteDirectamente(tagName, scriptSrc);
         });
     });
     
-    function enviarMensajeInsercion(tagName, scriptSrc) {
-        try {
-            console.log('Enviando mensaje al background script');
-            // Enviar mensaje al background script
-            chrome.runtime.sendMessage({
-                action: "insertComponentBackground",
-                tagName: tagName,
-                scriptSrc: scriptSrc
-            }, function(response) {
-                console.log('Respuesta recibida:', response);
-                
-                if (chrome.runtime.lastError) {
-                    mostrarError(`Error: ${chrome.runtime.lastError.message}`);
-                    return;
+    function insertarComponenteDirectamente(tagName, scriptSrc) {
+        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+            if (!tabs || tabs.length === 0) {
+                mostrarError("Error: No se pudo obtener la pestaña activa");
+                return;
+            }
+            
+            const activeTab = tabs[0];
+            
+            // Verificar si podemos inyectar en esta pestaña
+            const url = new URL(activeTab.url);
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                mostrarError(`No se puede insertar en páginas ${url.protocol}`);
+                return;
+            }
+            
+            // Enviar mensaje directamente al content script
+            chrome.tabs.sendMessage(
+                activeTab.id,
+                {
+                    action: "insertComponent",
+                    tagName: tagName,
+                    scriptSrc: scriptSrc
+                },
+                function(response) {
+                    if (chrome.runtime.lastError) {
+                        console.error("Error enviando mensaje:", chrome.runtime.lastError);
+                        mostrarError("Error: No se pudo comunicar con la página. Intente recargar la página.");
+                        return;
+                    }
+                    
+                    if (response && response.success) {
+                        mostrarExito("Componente insertado correctamente");
+                    } else {
+                        const errorMsg = response && response.error ? response.error : "Error desconocido";
+                        mostrarError(`Error: ${errorMsg}`);
+                    }
                 }
-                
-                if (response && response.success) {
-                    statusMessage.textContent = "Componente insertado correctamente";
-                    statusMessage.className = "status-message status-success";
-                } else {
-                    const errorMsg = response ? response.error : "Error desconocido";
-                    mostrarError(`Error: ${errorMsg}`);
-                }
-            });
-        } catch (error) {
-            console.error('Error detallado:', error);
-            mostrarError(`Error: ${error.message || "No se pudo insertar el componente"}`);
-        }
+            );
+        });
+    }
+    
+    function mostrarExito(mensaje) {
+        console.log(mensaje);
+        statusMessage.textContent = mensaje;
+        statusMessage.className = "status-message status-success";
+        statusMessage.style.display = "block";
     }
     
     function mostrarError(mensaje) {

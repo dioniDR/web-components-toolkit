@@ -3,6 +3,9 @@
 // Al inicio del archivo
 console.log("Content script de Web Components Toolkit inicializando...");
 
+// Variable global para controlar el offset de posicionamiento de nuevos componentes
+let componentCounter = 0;
+
 // Registrar listener para mensajes del popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Mensaje recibido en content script:", message);
@@ -36,19 +39,23 @@ async function insertComponent(tagName, scriptSrc) {
             const scriptUrl = chrome.runtime.getURL(`js/${scriptSrc}`);
             console.log('URL generada para el script:', scriptUrl);
             script.src = scriptUrl;
-            script.onload = () => {
-                console.log(`Script ${scriptSrc} cargado correctamente`);
-                // Insertar el componente después de cargar el script
-                insertComponentTag(tagName);
-            };
-            script.onerror = () => {
-                throw new Error(`Error al cargar el script: ${scriptSrc}`);
-            };
-            document.head.appendChild(script);
-        } else {
-            // Si el script ya está cargado, simplemente insertamos el componente
-            insertComponentTag(tagName);
+            
+            // Crear una promesa para manejar la carga del script
+            await new Promise((resolve, reject) => {
+                script.onload = () => {
+                    console.log(`Script ${scriptSrc} cargado correctamente`);
+                    resolve();
+                };
+                script.onerror = () => {
+                    reject(new Error(`Error al cargar el script: ${scriptSrc}`));
+                };
+                document.head.appendChild(script);
+            });
         }
+        
+        // Ahora insertamos el componente
+        insertComponentTag(tagName);
+        return true;
     } catch (error) {
         console.error('Error al insertar componente:', error);
         throw error;
@@ -59,29 +66,33 @@ async function insertComponent(tagName, scriptSrc) {
 function insertComponentTag(tagName) {
     console.log(`Insertando etiqueta del componente: ${tagName}`);
     
+    // Incrementar el contador global para offset de posicionamiento
+    componentCounter++;
+    
     // Crear el elemento
     const component = document.createElement(tagName);
     
     // Crear un contenedor para el componente
     const container = document.createElement('div');
     container.className = 'web-component-container';
+    
+    // Calcular posición inicial con desplazamiento para evitar superposición
+    const verticalOffset = 100 + (componentCounter % 5) * 40;
+    const horizontalOffset = (componentCounter % 3) * 50;
+    
     container.style.cssText = `
-        margin: 20px auto;
         padding: 10px;
         border: 2px solid #4361ee;
         border-radius: 8px;
-        position: fixed;
-        top: 0;
-        left: 50%;
-        transform: translateX(-50%);
+        position: absolute;
+        top: ${verticalOffset}px;
+        left: ${horizontalOffset + 100}px;
         width: 350px;
-        z-index: 9999;
+        z-index: 10000;
         background-color: white;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        user-select: none;
     `;
-    
-    // Hacer que el contenedor sea arrastrable
-    makeDraggable(container);
     
     // Añadir barra de herramientas
     const toolbar = document.createElement('div');
@@ -115,7 +126,8 @@ function insertComponentTag(tagName) {
         cursor: pointer;
         font-size: 14px;
     `;
-    removeBtn.onclick = function() {
+    removeBtn.onclick = function(e) {
+        e.stopPropagation(); // Evitar que el evento llegue al toolbar
         console.log(`Eliminando componente: ${tagName}`);
         container.remove();
     };
@@ -125,74 +137,89 @@ function insertComponentTag(tagName) {
     container.appendChild(toolbar);
     container.appendChild(component);
     
-    // Insertar al final del body en vez de usar la selección o posición del cursor
+    // Insertar al final del body
     document.body.appendChild(container);
     
+    // Aplicar funcionalidad de arrastre simplificada
+    makeSimpleDraggable(container, toolbar);
+    
     console.log(`Componente ${tagName} insertado correctamente`);
+    return container;
 }
 
-// Función para hacer un elemento arrastrable
-function makeDraggable(element) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    const toolbar = element.querySelector('.web-component-toolbar');
+// Función simplificada para hacer un elemento arrastrable
+function makeSimpleDraggable(element, handle) {
+    // Variables para el arrastre
+    let isDragging = false;
+    let offsetX, offsetY;
     
-    if (toolbar) {
-        // Si hay toolbar, solo permitir arrastrar desde allí
-        toolbar.onmousedown = dragMouseDown;
-    } else {
-        // Si no hay toolbar, permitir arrastrar desde todo el elemento
-        element.onmousedown = dragMouseDown;
-    }
+    // El elemento que usaremos como "manija" para arrastrar
+    const dragHandle = handle || element;
     
-    function dragMouseDown(e) {
-        e = e || window.event;
+    // Evento de inicio de arrastre
+    dragHandle.addEventListener('mousedown', function(e) {
+        // Solo procesar clics del botón principal (usualmente izquierdo)
+        if (e.button !== 0) return;
+        
         e.preventDefault();
+        isDragging = true;
         
-        // Obtener la posición del cursor del mouse al inicio
-        pos3 = e.clientX;
-        pos4 = e.clientY;
+        // Calcular el offset del mouse dentro del elemento
+        const rect = element.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
         
-        // Al soltar el mouse, detener el movimiento
-        document.onmouseup = closeDragElement;
-        
-        // Al mover el mouse, mover el elemento
-        document.onmousemove = elementDrag;
-    }
+        // Aplicar estilo durante el arrastre
+        element.style.opacity = '0.8';
+        element.style.boxShadow = '0 5px 15px rgba(0, 0, 0, 0.3)';
+    });
     
-    function elementDrag(e) {
-        e = e || window.event;
-        e.preventDefault();
+    // Evento de movimiento (a nivel de documento para mayor robustez)
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
         
         // Calcular la nueva posición
-        pos1 = pos3 - e.clientX;
-        pos2 = pos4 - e.clientY;
-        pos3 = e.clientX;
-        pos4 = e.clientY;
+        const left = e.clientX - offsetX;
+        const top = e.clientY - offsetY;
         
-        // Establecer la nueva posición del elemento
-        const top = (element.offsetTop - pos2);
-        const left = (element.offsetLeft - pos1);
-        
-        // Asegurarse de que el elemento no salga de la ventana
-        if (top > 0 && top < window.innerHeight - element.offsetHeight) {
-            element.style.top = top + "px";
-        }
-        
-        if (left > 0 && left < window.innerWidth - element.offsetWidth) {
-            element.style.left = left + "px";
-        }
-        
-        // Si el elemento ha sido movido, eliminamos la transformación para que no interfiera
-        if (element.style.transform) {
-            element.style.transform = "";
-        }
-    }
+        // Aplicar la nueva posición sin restricciones
+        element.style.left = `${left}px`;
+        element.style.top = `${top}px`;
+    });
     
-    function closeDragElement() {
-        // Detener el movimiento al soltar el mouse
-        document.onmouseup = null;
-        document.onmousemove = null;
-    }
+    // Evento para terminar el arrastre
+    document.addEventListener('mouseup', function() {
+        if (!isDragging) return;
+        
+        isDragging = false;
+        
+        // Restaurar estilo original
+        element.style.opacity = '1';
+        element.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.2)';
+        
+        // Comprobar la posición final para evitar que salga completamente de la vista
+        const rect = element.getBoundingClientRect();
+        
+        // Si está fuera por arriba, reposicionar
+        if (rect.top < 0) {
+            element.style.top = '0px';
+        }
+        
+        // Si está muy afuera por la izquierda, reposicionar
+        if (rect.right < 50) {
+            element.style.left = `${-rect.width + 50}px`;
+        }
+        
+        // Si está muy afuera por la derecha, reposicionar
+        if (rect.left > window.innerWidth - 50) {
+            element.style.left = `${window.innerWidth - 50}px`;
+        }
+    });
+    
+    // Prevenir el arrastre predeterminado del navegador
+    dragHandle.addEventListener('dragstart', function(e) {
+        e.preventDefault();
+    });
 }
 
 console.log("Content script de Web Components Toolkit cargado correctamente");
