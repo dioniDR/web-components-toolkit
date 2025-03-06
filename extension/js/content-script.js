@@ -1,13 +1,20 @@
 // Script de contenido - se ejecuta en el contexto de la página web
 
+// Al inicio del archivo
+console.log("Content script de Web Components Toolkit inicializando...");
+
 // Registrar listener para mensajes del popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Mensaje recibido en content script:", message);
     
     if (message.action === "insertComponent") {
         console.log("Intentando insertar componente:", message.tagName);
-        insertComponent(message.tagName, message.scriptSrc);
-        sendResponse({ success: true });
+        insertComponent(message.tagName, message.scriptSrc)
+            .then(() => sendResponse({ success: true }))
+            .catch(error => {
+                console.error('Error al insertar componente:', error);
+                sendResponse({ success: false, error: error.message });
+            });
     } else if (message.action === "checkStatus") {
         console.log("Verificación de estado recibida");
         sendResponse({ status: "ready" });
@@ -16,7 +23,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Función para insertar un componente en la página
-function insertComponent(tagName, scriptSrc) {
+async function insertComponent(tagName, scriptSrc) {
     try {
         // Comprobar si el script ya está cargado
         const scriptExists = Array.from(document.querySelectorAll('script')).some(
@@ -26,11 +33,16 @@ function insertComponent(tagName, scriptSrc) {
         // Si el script no está cargado, lo cargamos primero
         if (!scriptExists) {
             const script = document.createElement('script');
-            script.src = chrome.runtime.getURL(`js/${scriptSrc}`);
+            const scriptUrl = chrome.runtime.getURL(`js/${scriptSrc}`);
+            console.log('URL generada para el script:', scriptUrl);
+            script.src = scriptUrl;
             script.onload = () => {
                 console.log(`Script ${scriptSrc} cargado correctamente`);
                 // Insertar el componente después de cargar el script
                 insertComponentTag(tagName);
+            };
+            script.onerror = () => {
+                throw new Error(`Error al cargar el script: ${scriptSrc}`);
             };
             document.head.appendChild(script);
         } else {
@@ -39,11 +51,14 @@ function insertComponent(tagName, scriptSrc) {
         }
     } catch (error) {
         console.error('Error al insertar componente:', error);
+        throw error;
     }
 }
 
 // Función para insertar la etiqueta del componente
 function insertComponentTag(tagName) {
+    console.log(`Insertando etiqueta del componente: ${tagName}`);
+    
     // Crear el elemento
     const component = document.createElement(tagName);
     
@@ -90,6 +105,7 @@ function insertComponentTag(tagName) {
         font-size: 14px;
     `;
     removeBtn.onclick = function() {
+        console.log(`Eliminando componente: ${tagName}`);
         container.remove();
     };
     toolbar.appendChild(removeBtn);
@@ -101,9 +117,11 @@ function insertComponentTag(tagName) {
     // Buscar el área de prueba si existe
     const testArea = document.querySelector('.test-area');
     if (testArea) {
+        console.log('Área de prueba encontrada, insertando componente');
         testArea.innerHTML = '';
         testArea.appendChild(container);
     } else {
+        console.log('Área de prueba no encontrada, insertando componente en el body');
         // Insertar en el lugar seleccionado o al final del body
         if (window.getSelection) {
             const selection = window.getSelection();
@@ -121,6 +139,7 @@ function insertComponentTag(tagName) {
     
     // Scroll hacia el componente
     container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    console.log(`Componente ${tagName} insertado y desplazado a la vista`);
 }
 
 console.log("Content script de Web Components Toolkit cargado correctamente");
