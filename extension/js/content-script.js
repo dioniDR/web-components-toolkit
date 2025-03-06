@@ -9,7 +9,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     if (message.action === "insertComponent") {
         console.log("Intentando insertar componente:", message.tagName);
-        insertComponent(message.tagName, message.scriptSrc)
+        insertComponent(message.tagName, message.scriptSrc, message.scriptContent)
             .then(() => sendResponse({ success: true }))
             .catch(error => {
                 console.error('Error al insertar componente:', error);
@@ -23,32 +23,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Función para insertar un componente en la página
-async function insertComponent(tagName, scriptSrc) {
+async function insertComponent(tagName, scriptSrc, scriptContent) {
     try {
-        // Comprobar si el script ya está cargado
-        const scriptExists = Array.from(document.querySelectorAll('script')).some(
-            script => script.src.includes(scriptSrc)
-        );
-        
-        // Si el script no está cargado, lo cargamos primero
-        if (!scriptExists) {
+        // Verificar si el componente ya está definido
+        if (!customElements.get(tagName)) {
+            console.log(`Componente '${tagName}' no está registrado, inyectando script...`);
+            
+            // Inyectamos el código directamente en vez de cargar el archivo
+            // Esto evita problemas con CSP y asegura que el script se ejecute en el contexto correcto
             const script = document.createElement('script');
-            const scriptUrl = chrome.runtime.getURL(`js/${scriptSrc}`);
-            console.log('URL generada para el script:', scriptUrl);
-            script.src = scriptUrl;
-            script.onload = () => {
-                console.log(`Script ${scriptSrc} cargado correctamente`);
-                // Insertar el componente después de cargar el script
-                insertComponentTag(tagName);
-            };
-            script.onerror = () => {
-                throw new Error(`Error al cargar el script: ${scriptSrc}`);
-            };
+            script.textContent = scriptContent;
             document.head.appendChild(script);
+            
+            // Esperamos un poco para asegurar que el componente se registre
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Verificamos que el componente se haya registrado correctamente
+            if (!customElements.get(tagName)) {
+                console.warn(`El componente '${tagName}' no se registró correctamente después de inyectar el script`);
+                // Continuamos de todos modos, tal vez el componente use un registro asíncrono
+            } else {
+                console.log(`Componente '${tagName}' registrado correctamente`);
+            }
         } else {
-            // Si el script ya está cargado, simplemente insertamos el componente
-            insertComponentTag(tagName);
+            console.log(`Componente '${tagName}' ya está registrado`);
         }
+        
+        // Insertamos la etiqueta del componente
+        insertComponentTag(tagName);
     } catch (error) {
         console.error('Error al insertar componente:', error);
         throw error;
@@ -66,12 +68,22 @@ function insertComponentTag(tagName) {
     const container = document.createElement('div');
     container.className = 'web-component-container';
     container.style.cssText = `
-        margin: 20px 0;
+        margin: 20px auto;
         padding: 10px;
         border: 2px solid #4361ee;
         border-radius: 8px;
-        position: relative;
+        position: fixed;
+        top: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 350px;
+        z-index: 9999;
+        background-color: white;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     `;
+    
+    // Hacer que el contenedor sea arrastrable
+    makeDraggable(container);
     
     // Añadir barra de herramientas
     const toolbar = document.createElement('div');
@@ -85,6 +97,7 @@ function insertComponentTag(tagName) {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        cursor: move; /* Indicar que es arrastrable */
     `;
     
     // Añadir título
@@ -103,43 +116,90 @@ function insertComponentTag(tagName) {
         font-weight: bold;
         cursor: pointer;
         font-size: 14px;
+        padding: 5px 10px;
     `;
-    removeBtn.onclick = function() {
+    
+    // Añadir evento de click al botón de cerrar usando addEventListener en lugar de onclick
+    removeBtn.addEventListener('click', function(e) {
+        e.stopPropagation(); // Evitar que el evento se propague
         console.log(`Eliminando componente: ${tagName}`);
         container.remove();
-    };
+    });
+    
     toolbar.appendChild(removeBtn);
     
     // Ensamblar todo
     container.appendChild(toolbar);
     container.appendChild(component);
     
-    // Buscar el área de prueba si existe
-    const testArea = document.querySelector('.test-area');
-    if (testArea) {
-        console.log('Área de prueba encontrada, insertando componente');
-        testArea.innerHTML = '';
-        testArea.appendChild(container);
+    // Insertar al final del body en vez de usar la selección o posición del cursor
+    document.body.appendChild(container);
+    
+    console.log(`Componente ${tagName} insertado correctamente`);
+}
+
+// Función para hacer un elemento arrastrable
+function makeDraggable(element) {
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    const toolbar = element.querySelector('.web-component-toolbar');
+    
+    if (toolbar) {
+        // Si hay toolbar, solo permitir arrastrar desde allí
+        toolbar.onmousedown = dragMouseDown;
     } else {
-        console.log('Área de prueba no encontrada, insertando componente en el body');
-        // Insertar en el lugar seleccionado o al final del body
-        if (window.getSelection) {
-            const selection = window.getSelection();
-            if (selection.rangeCount > 0) {
-                const range = selection.getRangeAt(0);
-                range.deleteContents();
-                range.insertNode(container);
-                return;
-            }
-        }
-        
-        // Si no hay selección, insertar al final
-        document.body.appendChild(container);
+        // Si no hay toolbar, permitir arrastrar desde todo el elemento
+        element.onmousedown = dragMouseDown;
     }
     
-    // Scroll hacia el componente
-    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    console.log(`Componente ${tagName} insertado y desplazado a la vista`);
+    function dragMouseDown(e) {
+        e = e || window.event;
+        e.preventDefault();
+        
+        // Obtener la posición del cursor del mouse al inicio
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        
+        // Al soltar el mouse, detener el movimiento
+        document.onmouseup = closeDragElement;
+        
+        // Al mover el mouse, mover el elemento
+        document.onmousemove = elementDrag;
+    }
+    
+    function elementDrag(e) {
+        e = e || window.event;
+        e.preventDefault();
+        
+        // Calcular la nueva posición
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        
+        // Establecer la nueva posición del elemento
+        const top = (element.offsetTop - pos2);
+        const left = (element.offsetLeft - pos1);
+        
+        // Asegurarse de que el elemento no salga de la ventana
+        if (top > 0 && top < window.innerHeight - 100) {
+            element.style.top = top + "px";
+        }
+        
+        if (left > -element.offsetWidth/2 && left < window.innerWidth - element.offsetWidth/2) {
+            element.style.left = left + "px";
+        }
+        
+        // Si el elemento ha sido movido, eliminamos la transformación para que no interfiera
+        if (element.style.transform) {
+            element.style.transform = "";
+        }
+    }
+    
+    function closeDragElement() {
+        // Detener el movimiento al soltar el mouse
+        document.onmouseup = null;
+        document.onmousemove = null;
+    }
 }
 
 console.log("Content script de Web Components Toolkit cargado correctamente");
