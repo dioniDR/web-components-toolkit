@@ -82,9 +82,6 @@ function insertComponentTag(tagName) {
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     `;
     
-    // Hacer que el contenedor sea arrastrable
-    makeDraggable(container);
-    
     // Añadir barra de herramientas
     const toolbar = document.createElement('div');
     toolbar.className = 'web-component-toolbar';
@@ -97,7 +94,6 @@ function insertComponentTag(tagName) {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        cursor: move; /* Indicar que es arrastrable */
     `;
     
     // Añadir título
@@ -116,16 +112,11 @@ function insertComponentTag(tagName) {
         font-weight: bold;
         cursor: pointer;
         font-size: 14px;
-        padding: 5px 10px;
     `;
-    
-    // Añadir evento de click al botón de cerrar usando addEventListener en lugar de onclick
-    removeBtn.addEventListener('click', function(e) {
-        e.stopPropagation(); // Evitar que el evento se propague
+    removeBtn.onclick = function() {
         console.log(`Eliminando componente: ${tagName}`);
         container.remove();
-    });
-    
+    };
     toolbar.appendChild(removeBtn);
     
     // Ensamblar todo
@@ -136,70 +127,6 @@ function insertComponentTag(tagName) {
     document.body.appendChild(container);
     
     console.log(`Componente ${tagName} insertado correctamente`);
-}
-
-// Función para hacer un elemento arrastrable
-function makeDraggable(element) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    const toolbar = element.querySelector('.web-component-toolbar');
-    
-    if (toolbar) {
-        // Si hay toolbar, solo permitir arrastrar desde allí
-        toolbar.onmousedown = dragMouseDown;
-    } else {
-        // Si no hay toolbar, permitir arrastrar desde todo el elemento
-        element.onmousedown = dragMouseDown;
-    }
-    
-    function dragMouseDown(e) {
-        e = e || window.event;
-        e.preventDefault();
-        
-        // Obtener la posición del cursor del mouse al inicio
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        
-        // Al soltar el mouse, detener el movimiento
-        document.onmouseup = closeDragElement;
-        
-        // Al mover el mouse, mover el elemento
-        document.onmousemove = elementDrag;
-    }
-    
-    function elementDrag(e) {
-        e = e || window.event;
-        e.preventDefault();
-        
-        // Calcular la nueva posición
-        pos1 = pos3 - e.clientX;
-        pos2 = pos4 - e.clientY;
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        
-        // Establecer la nueva posición del elemento
-        const top = (element.offsetTop - pos2);
-        const left = (element.offsetLeft - pos1);
-        
-        // Asegurarse de que el elemento no salga de la ventana
-        if (top > 0 && top < window.innerHeight - 100) {
-            element.style.top = top + "px";
-        }
-        
-        if (left > -element.offsetWidth/2 && left < window.innerWidth - element.offsetWidth/2) {
-            element.style.left = left + "px";
-        }
-        
-        // Si el elemento ha sido movido, eliminamos la transformación para que no interfiera
-        if (element.style.transform) {
-            element.style.transform = "";
-        }
-    }
-    
-    function closeDragElement() {
-        // Detener el movimiento al soltar el mouse
-        document.onmouseup = null;
-        document.onmousemove = null;
-    }
 }
 
 console.log("Content script de Web Components Toolkit cargado correctamente");
