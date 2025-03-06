@@ -5,60 +5,82 @@ chrome.runtime.onInstalled.addListener(() => {
     console.log('Extensión Kit de Herramientas Web instalada o actualizada');
   });
   
+  // Caché para almacenar contenido de scripts
+  const scriptCache = {};
+  
   // Escuchar mensajes desde el popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Mensaje recibido en background script:', message);
     
     if (message.action === 'insertComponentBackground') {
+      handleInsertComponent(message, sendResponse);
+      return true; // Mantener el canal abierto para respuesta asíncrona
+    }
+  });
+  
+  async function handleInsertComponent(message, sendResponse) {
+    console.log('Manejando la inserción del componente:', message.tagName);
+    
+    try {
+      const scriptContent = await getScriptContent(message.scriptSrc);
+      
       chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         try {
           const tabId = tabs[0].id;
           
-          // Primero inyectar el script del componente
-          await chrome.scripting.executeScript({
-            target: { tabId },
-            files: [`js/${message.scriptSrc}`]
+          // Enviar el contenido del script al content script
+          chrome.tabs.sendMessage(tabId, {
+            action: "insertComponent",
+            tagName: message.tagName,
+            scriptSrc: message.scriptSrc,
+            scriptContent: scriptContent
+          }, response => {
+            console.log('Respuesta del content script:', response);
+            
+            if (response && response.success) {
+              sendResponse({ success: true });
+            } else {
+              const errorMsg = response ? response.error : "Error desconocido en content script";
+              console.error('Error reportado por content script:', errorMsg);
+              sendResponse({ success: false, error: errorMsg });
+            }
           });
-          
-          // Luego insertar el componente
-          const result = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: (tagName) => {
-              // Crear el elemento
-              const component = document.createElement(tagName);
-              
-              // Crear un contenedor con estilos
-              const container = document.createElement('div');
-              container.style.margin = '20px 0';
-              container.style.padding = '10px';
-              container.style.border = '2px solid #4361ee';
-              container.style.borderRadius = '8px';
-              
-              // Añadir el componente al contenedor
-              container.appendChild(component);
-              
-              // Buscar el área de prueba si existe
-              const testArea = document.querySelector('.test-area');
-              if (testArea) {
-                testArea.innerHTML = '';
-                testArea.appendChild(container);
-              } else {
-                // Si no hay área de prueba, añadir al body
-                document.body.appendChild(container);
-              }
-              
-              return true;
-            },
-            args: [message.tagName]
-          });
-          
-          sendResponse({ success: true, result });
         } catch (error) {
-          console.error('Error al insertar componente:', error);
+          console.error('Error al comunicarse con la pestaña:', error);
           sendResponse({ success: false, error: error.message });
         }
       });
-      
-      return true; // Mantener el canal abierto para respuesta asíncrona
+    } catch (error) {
+      console.error('Error al obtener el contenido del script:', error);
+      sendResponse({ success: false, error: error.message });
     }
-  });
+  }
+  
+  // Función para obtener el contenido del script
+  async function getScriptContent(scriptSrc) {
+    // Revisamos primero si ya tenemos el script en caché
+    if (scriptCache[scriptSrc]) {
+      console.log(`Usando script en caché para: ${scriptSrc}`);
+      return scriptCache[scriptSrc];
+    }
+    
+    // Si no está en caché, lo cargamos
+    console.log(`Cargando script: ${scriptSrc}`);
+    
+    try {
+      const response = await fetch(chrome.runtime.getURL(`js/${scriptSrc}`));
+      if (!response.ok) {
+        throw new Error(`No se pudo cargar el script: ${response.status} ${response.statusText}`);
+      }
+      
+      const scriptContent = await response.text();
+      
+      // Guardamos en caché para futuros usos
+      scriptCache[scriptSrc] = scriptContent;
+      
+      return scriptContent;
+    } catch (error) {
+      console.error('Error cargando script:', error);
+      throw error;
+    }
+  }
