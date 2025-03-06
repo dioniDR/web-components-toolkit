@@ -9,7 +9,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     if (message.action === "insertComponent") {
         console.log("Intentando insertar componente:", message.tagName);
-        insertComponent(message.tagName, message.scriptSrc, message.scriptContent)
+        insertComponent(message.tagName, message.scriptSrc)
             .then(() => sendResponse({ success: true }))
             .catch(error => {
                 console.error('Error al insertar componente:', error);
@@ -23,34 +23,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Función para insertar un componente en la página
-async function insertComponent(tagName, scriptSrc, scriptContent) {
+async function insertComponent(tagName, scriptSrc) {
     try {
-        // Verificar si el componente ya está definido
-        if (!customElements.get(tagName)) {
-            console.log(`Componente '${tagName}' no está registrado, inyectando script...`);
-            
-            // Inyectamos el código directamente en vez de cargar el archivo
-            // Esto evita problemas con CSP y asegura que el script se ejecute en el contexto correcto
-            const script = document.createElement('script');
-            script.textContent = scriptContent;
-            document.head.appendChild(script);
-            
-            // Esperamos un poco para asegurar que el componente se registre
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            // Verificamos que el componente se haya registrado correctamente
-            if (!customElements.get(tagName)) {
-                console.warn(`El componente '${tagName}' no se registró correctamente después de inyectar el script`);
-                // Continuamos de todos modos, tal vez el componente use un registro asíncrono
-            } else {
-                console.log(`Componente '${tagName}' registrado correctamente`);
-            }
-        } else {
-            console.log(`Componente '${tagName}' ya está registrado`);
-        }
+        // Comprobar si el script ya está cargado
+        const scriptExists = Array.from(document.querySelectorAll('script')).some(
+            script => script.src.includes(scriptSrc)
+        );
         
-        // Insertamos la etiqueta del componente
-        insertComponentTag(tagName);
+        // Si el script no está cargado, lo cargamos primero
+        if (!scriptExists) {
+            const script = document.createElement('script');
+            const scriptUrl = chrome.runtime.getURL(`js/${scriptSrc}`);
+            console.log('URL generada para el script:', scriptUrl);
+            script.src = scriptUrl;
+            script.onload = () => {
+                console.log(`Script ${scriptSrc} cargado correctamente`);
+                // Insertar el componente después de cargar el script
+                insertComponentTag(tagName);
+            };
+            script.onerror = () => {
+                throw new Error(`Error al cargar el script: ${scriptSrc}`);
+            };
+            document.head.appendChild(script);
+        } else {
+            // Si el script ya está cargado, simplemente insertamos el componente
+            insertComponentTag(tagName);
+        }
     } catch (error) {
         console.error('Error al insertar componente:', error);
         throw error;
@@ -68,18 +66,11 @@ function insertComponentTag(tagName) {
     const container = document.createElement('div');
     container.className = 'web-component-container';
     container.style.cssText = `
-        margin: 20px auto;
+        margin: 20px 0;
         padding: 10px;
         border: 2px solid #4361ee;
         border-radius: 8px;
-        position: fixed;
-        top: 100px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 350px;
-        z-index: 9999;
-        background-color: white;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        position: relative;
     `;
     
     // Añadir barra de herramientas
@@ -123,10 +114,32 @@ function insertComponentTag(tagName) {
     container.appendChild(toolbar);
     container.appendChild(component);
     
-    // Insertar al final del body en vez de usar la selección o posición del cursor
-    document.body.appendChild(container);
+    // Buscar el área de prueba si existe
+    const testArea = document.querySelector('.test-area');
+    if (testArea) {
+        console.log('Área de prueba encontrada, insertando componente');
+        testArea.innerHTML = '';
+        testArea.appendChild(container);
+    } else {
+        console.log('Área de prueba no encontrada, insertando componente en el body');
+        // Insertar en el lugar seleccionado o al final del body
+        if (window.getSelection) {
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(container);
+                return;
+            }
+        }
+        
+        // Si no hay selección, insertar al final
+        document.body.appendChild(container);
+    }
     
-    console.log(`Componente ${tagName} insertado correctamente`);
+    // Scroll hacia el componente
+    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    console.log(`Componente ${tagName} insertado y desplazado a la vista`);
 }
 
 console.log("Content script de Web Components Toolkit cargado correctamente");
