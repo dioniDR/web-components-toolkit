@@ -1,0 +1,10 @@
+{
+    "componentes": [
+        {"archivo": "openia-chat.js", "tag": "openai-chat"},
+        {"archivo": "chat-capture.js", "tag": "chat-capture"},
+        {"archivo": "contador.js", "tag": "contador-app"},
+        {"archivo": "word-collector.js", "tag": "word-collector"},
+        {"archivo": "todo-list.js", "tag": "todo-list"},
+        {"archivo": "cargador-dinamico.js", "tag": "preguntas-menu"}
+    ]
+}
